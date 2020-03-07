@@ -164,6 +164,8 @@ mysqlを起動します
 : 'sockやプロセスが残っているとmysqlの起動に失敗するので削除'
 sudo rm -rf /tmp/mysql.sock
 sudo pkill -KILL -f mysql
+sudo pkill -KILL -f mysql
+sudo pkill -KILL -f mysql
 \
 : 'mysqlの起動'
 mysql.server start
@@ -221,7 +223,7 @@ if [ $RAILS_NEW = no ] ; then
 fi
 \
 : 'OpenSSLのチェック'
-OPENSSL=`ruby -ropenssl -e 'puts OpenSSL::OPENSSL_VERSION'`
+RUBY_OPENSSL=`ruby -ropenssl -e 'puts OpenSSL::OPENSSL_VERSION'`
 RUBY_V=`ruby -v`
 
 printf "
@@ -229,22 +231,101 @@ printf "
 OpenSSLをチェックします
 ${RUBY_V}
 には
-${OPENSSL}
+${RUBY_OPENSSL}
 が使用されています。
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 "
 
-if [[ $OPENSSL == *1.0.* ]]; then
+BREW_OPENSSL_INFO=`brew info openssl`
+BREW_OPENSSL_INFO=(`echo $BREW_OPENSSL_INFO`)
+RUBY_OPENSSL=(`echo $RUBY_OPENSSL`)
+
+if [[ ${RUBY_OPENSSL[2]:0:3} != ${BREW_OPENSSL_INFO[3]:0:3} ]]; then
   printf '\e[31m
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-※※※rubyにopenssl1.0が使用されています※※※
+※※※Homebrewのopensslとrubyで使用されているopensslに齟齬があります！※※※
 もし以下のようなエラーが出ていて詰まっているようであればrubyの入れ直しを検討してください。
 
 Library not loaded: /usr/local/opt/openssl/lib/libssl.1.0.0.dylib (LoadError)
 
+openssl,ruby,mysqlを入れ直しますか？（かなり時間がかかります）
+入れ直す場合はyを入力してEnterを押してください。
+入れ直さない場合はy以外を入力してEnterを押してください。
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 \e[m
 '
+  read reinstall_openssl
+
+  if [ $reinstall_openssl = y -o $reinstall_openssl = ｙ ] ; then
+    printf "
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+opensslを削除しています
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+"
+    brew uninstall --ignore-dependencies openssl
+    brew uninstall --ignore-dependencies openssl
+  printf "
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+opensslを入れ直しています
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+"
+    brew install openssl
+  printf "
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+opensslのパスを通しています
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+"
+    sed -i .bak '/export PATH=\/usr\/local\/opt\/openssl/d' ~/.$ENV_FILE
+    echo "export PATH=`brew --prefix openssl`/bin:\$PATH" >> ~/.$ENV_FILE
+    source ~/.$ENV_FILE
+    OPENSSL_VERSION=`openssl version`
+    OPENSSL_VERSION=(`echo $OPENSSL_VERSION`)
+    brew switch openssl $OPENSSL_VERSION[2]
+  fi
+
+  printf "
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+rubyを入れ直します
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+"
+  cd ~
+  brew uninstall rbenv
+  rm -rf ~/.rbenv
+  brew install rbenv
+  export CONFIGURE_OPTS="--with-readline-dir=`brew --prefix readline` --with-openssl-dir=`brew --prefix openssl`"
+  export RUBY_CONFIGURE_OPTS="--with-readline-dir=`brew --prefix readline` --disable-install-doc --with-openssl-dir=`brew --prefix openssl`"
+  rbenv install $GLOBAL_RUBY_VER
+  rbenv rehash
+  rbenv global $GLOBAL_RUBY_VER
+  rbenv rehash
+  printf "
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+mysqlを入れ直します
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+"
+  brew uninstall mysql@$MYSQL_VER
+  brew install mysql@$MYSQL_VER
+  printf "
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+mysqlを起動します
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+"
+  : 'sockやプロセスが残っているとmysqlの起動に失敗するので削除'
+  sudo rm -rf /tmp/mysql.sock
+  sudo pkill -KILL -f mysql
+  sudo pkill -KILL -f mysql
+  sudo pkill -KILL -f mysql
+  \
+  : 'mysqlの起動'
+  mysql.server start
+  \
+  : 'mysql自動起動の設定'
+  rm -rf ~/Library/LaunchAgents
+  mkdir ~/Library/LaunchAgents
+  ln -sfv /usr/local/opt/mysql\@$MYSQL_VER/*.plist ~/Library/LaunchAgents
+  launchctl load ~/Library/LaunchAgents/homebrew.mxcl.mysql\@$MYSQL_VER.plist
+  \
+  cd $CDR
 fi
 \
 : 'Gemfileで指定されているrubyのバージョンを探して設定する'
@@ -296,6 +377,15 @@ else
 "
   gem install bundler
 fi
+\
+  printf "
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+railsをインストールします
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+"
+gem install rails -v '5.0.7.2'
+gem install rails -v '5.2.3'
+gem install rails -v '5.2.4'
 rbenv rehash
 \
 : 'mysql2のgemを全て消しておく（mysqlを入れ直した後だとエラーが出る可能性があるため）'
@@ -346,8 +436,8 @@ printf "
 springを再起動します
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 "
-spring stop
-spring
+bundle exec spring stop
+bundle exec spring
 \
 printf "
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
